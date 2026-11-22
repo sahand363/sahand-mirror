@@ -1,0 +1,5 @@
+/sahand-mirror
+/dist/
+/build/
+/sahand-mirror-collect/
+*.tar.gz
