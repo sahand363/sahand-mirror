@@ -42,6 +42,7 @@ func (e *Emulator) repo(owner, repo string) (*Repo, string) {
 	key := repoKey(owner, repo)
 	var rp *Repo
 	e.store.View(func(st *State) {
+		key = st.canon(key)
 		if p := st.Repos[key]; p != nil {
 			c := *p
 			rp = &c

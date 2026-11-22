@@ -69,6 +69,7 @@ func runMenu() {
  5) sync now          6) export bundle
  7) import bundle     8) logs
  9) update            10) uninstall
+ 11) apt proxy: use this hub's apt cache on another server
  0) exit
 `)
 		var e error
@@ -107,6 +108,14 @@ func runMenu() {
 			if menuUninstall() {
 				return
 			}
+		case "11":
+			hub := panelAddress(c)
+			p := aptProxyURL(hub, c.AccessKey)
+			if p == "" {
+				p = hub + "/  (hub is https: point sources.list at " + hub + "/apt/<host>/<path> instead)"
+			}
+			fmt.Printf("run on the other server (as root):\n\n  echo 'Acquire::http::Proxy \"%s\";' > /etc/apt/apt.conf.d/99sahand-mirror && apt-get update\n\nundo:\n  rm /etc/apt/apt.conf.d/99sahand-mirror\n", p)
+			fmt.Println("only http:// repos are cached; https repos (docker, cloudsmith...) still go direct and fail offline.")
 		case "0", "q":
 			return
 		}

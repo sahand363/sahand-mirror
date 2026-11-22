@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -56,7 +57,7 @@ func TestWrapperScript(t *testing.T) {
 	a := &App{ID: "3x-ui", Command: "bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)"}
 	s := buildWrapper(wrapperOpts{Hub: "http://10.0.0.5:8686/", App: a, Env: map[string]string{"XUI_PORT": "2053", "bad name": "x"},
 		Args: []string{"v2.4.0"}, Externs: []string{"https://get.acme.sh"}})
-	for _, want := range []string{"export MIRROR_URL='http://10.0.0.5:8686'", "export -f __sm_enc __sm_rw __sm_real __sm_run curl wget",
+	for _, want := range []string{"export MIRROR_URL='http://10.0.0.5:8686'", "export -f __sm_enc __sm_ip __sm_rw __sm_real __sm_run __sm_apt_prep __sm_apt curl wget",
 		"export XUI_PORT='2053'", `eval 'bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) '\''v2.4.0'\'''`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("wrapper missing %q", want)
@@ -72,5 +73,81 @@ func TestWrapperScript(t *testing.T) {
 	s = buildWrapper(wrapperOpts{Hub: "http://h:1", App: a})
 	if !strings.Contains(s, "bash <(curl -Ls http://h:1/i/3x-ui/recipe)") {
 		t.Errorf("recipe command not used:\n%s", s)
+	}
+}
+
+// runWrapped builds the wrapper, replaces its final eval with body and runs it.
+func runWrapped(t *testing.T, o wrapperOpts, prelude, body string) string {
+	t.Helper()
+	w := buildWrapper(o)
+	w = w[:strings.LastIndex(w, "\neval ")+1]
+	out, err := exec.Command("bash", "-c", prelude+"\n"+w+"\n"+body).CombinedOutput()
+	if err != nil {
+		t.Fatalf("bash: %v\n%s", err, out)
+	}
+	return string(out)
+}
+
+func TestWrapperAptAndIP(t *testing.T) {
+	bin := t.TempDir()
+	// fake apt-get/apt print their arguments; "update" fails like an unreachable repo
+	fake := "#!/bin/sh\necho \"REAL $(basename $0) $*\"\ncase \" $* \" in *\" update \"*) exit 100;; esac\nexit 0\n"
+	for _, n := range []string{"apt-get", "apt"} {
+		if err := os.WriteFile(bin+"/"+n, []byte(fake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &App{ID: "3x-ui", Command: "bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)"}
+	o := wrapperOpts{Hub: "http://10.0.0.5:8686", App: a, AptProxy: aptProxyURL("http://10.0.0.5:8686", ""), AptHTTPS: "keep"}
+	out := runWrapped(t, o, "export PATH="+bin+":$PATH", `
+apt-get install -y socat; echo "rc=$?"
+apt-get update; echo "update-rc=$?"
+bash -c 'apt -y install cron'
+sh -c 'apt-get -o Debug::X=1 install curl'
+type -t apt-get
+__sm_rw https://api4.ipify.org && echo "IP1 $REPLY"
+__sm_rw ifconfig.me && echo "IP2 $REPLY"
+__sm_rw 'https://api.ipify.org?format=json' && echo "IP3 $REPLY"
+__sm_rw https://ipinfo.io/json || echo "IP4 untouched"
+sh -c 'curl --version >/dev/null && echo shim-ok'
+`)
+	for _, want := range []string{
+		"REAL apt-get -o Acquire::http::Proxy=http://10.0.0.5:8686/ -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=15 -o Acquire::Retries=1 install -y socat",
+		"rc=0", "update-rc=0", "REAL apt -o Acquire::http::Proxy=http://10.0.0.5:8686/", "install cron",
+		"REAL apt-get -o Acquire::http::Proxy=http://10.0.0.5:8686/ -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=15 -o Acquire::Retries=1 -o Debug::X=1 install curl",
+		"function", "IP1 http://10.0.0.5:8686/myip", "IP2 http://10.0.0.5:8686/myip", "IP3 http://10.0.0.5:8686/myip?format=json", "IP4 untouched",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	// without the apt proxy apt-get is left alone
+	o.AptProxy = ""
+	out = runWrapped(t, o, "export PATH="+bin+":$PATH", "type -t apt-get; apt-get install x")
+	if strings.Contains(out, "function") || !strings.Contains(out, "REAL apt-get install x") {
+		t.Errorf("apt untouched expected:\n%s", out)
+	}
+}
+
+func TestWrapperAptSkipsUnreachableHTTPS(t *testing.T) {
+	etc := t.TempDir()
+	os.MkdirAll(etc+"/sources.list.d", 0o755)
+	os.WriteFile(etc+"/sources.list", []byte("deb http://de.archive.ubuntu.com/ubuntu noble main\n"), 0o644)
+	os.WriteFile(etc+"/sources.list.d/cloudsmith.list", []byte("deb [signed-by=/k] https://dl.cloudsmith.invalid/public/x/deb/ubuntu noble main\ndeb http://ok.example/ubuntu noble main\n"), 0o644)
+	os.WriteFile(etc+"/sources.list.d/docker.sources", []byte("Types: deb\nURIs: https://download.docker.invalid/linux/ubuntu\nSuites: noble\n\nTypes: deb\nURIs: http://keep.example/ubuntu\nSuites: noble\n"), 0o644)
+	bin := t.TempDir()
+	os.WriteFile(bin+"/apt-get", []byte("#!/bin/sh\necho \"REAL $*\"\n"), 0o755)
+	a := &App{ID: "x", Command: "true"}
+	o := wrapperOpts{Hub: "http://10.0.0.5:8686", App: a, AptProxy: "http://10.0.0.5:8686/"}
+	out := runWrapped(t, o, "export PATH="+bin+":$PATH __SM_APT_ETC="+etc, `apt-get update; d="$__SM_BIN/.apt"; echo ---; cat "$d/sources.list" "$d/sources.list.d/"*`)
+	for _, want := range []string{"unreachable https repos skipped", "Dir::Etc::SourceList=", "deb http://de.archive.ubuntu.com/ubuntu noble main",
+		"deb http://ok.example/ubuntu noble main", "URIs: http://keep.example/ubuntu"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	after := out[strings.Index(out, "---"):]
+	if strings.Contains(after, "cloudsmith.invalid") || strings.Contains(after, "docker.invalid") {
+		t.Errorf("https repos not filtered:\n%s", after)
 	}
 }

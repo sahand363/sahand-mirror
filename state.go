@@ -49,23 +49,37 @@ type Ext struct {
 }
 
 type App struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Kind      string    `json:"kind"` // "repo" | "command"
-	Repo      string    `json:"repo"` // primary owner/repo
-	Command   string    `json:"command"`
-	Recipe    string    `json:"recipe,omitempty"` // edited install script
-	Keep      int       `json:"keep,omitempty"`   // 0 = global
-	Archs     []string  `json:"archs,omitempty"`  // empty = all
-	Exclude   string    `json:"exclude,omitempty"`
-	Pre       bool      `json:"prerelease,omitempty"`
-	Repos     []string  `json:"repos"`               // lower-case owner/repo referenced
-	Raw       []string  `json:"raw,omitempty"`       // literal raw.githubusercontent URLs
-	Externals []string  `json:"externals,omitempty"` // non-GitHub URLs found
-	Note      string    `json:"note,omitempty"`
-	Added     time.Time `json:"added"`
-	LastSync  time.Time `json:"last_sync"`
-	Error     string    `json:"error,omitempty"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Kind      string     `json:"kind"` // "repo" | "command"
+	Repo      string     `json:"repo"` // primary owner/repo
+	Command   string     `json:"command"`
+	Recipe    string     `json:"recipe,omitempty"` // edited install script
+	Keep      int        `json:"keep,omitempty"`   // 0 = global
+	Archs     []string   `json:"archs,omitempty"`  // empty = all
+	Exclude   string     `json:"exclude,omitempty"`
+	Pre       bool       `json:"prerelease,omitempty"`
+	Repos     []string   `json:"repos"`               // lower-case owner/repo referenced
+	Raw       []string   `json:"raw,omitempty"`       // literal raw.githubusercontent URLs
+	Externals []string   `json:"externals,omitempty"` // non-GitHub URLs found
+	Note      string     `json:"note,omitempty"`
+	Added     time.Time  `json:"added"`
+	LastSync  time.Time  `json:"last_sync"`
+	Error     string     `json:"error,omitempty"`
+	Disabled  []string   `json:"disabled_repos,omitempty"` // repo keys excluded from mirroring
+	AptExtra  []string   `json:"apt_extra,omitempty"`      // extra apt packages to prefetch
+	Readiness *Readiness `json:"readiness,omitempty"`
+}
+
+// enabledRepos: referenced repos minus the ones the user switched off.
+func (a *App) enabledRepos() []string {
+	var out []string
+	for _, k := range a.Repos {
+		if !contains(a.Disabled, k) {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 type SyncStatus struct {
@@ -82,6 +96,18 @@ type State struct {
 	Repos map[string]*Repo `json:"repos"`
 	Ext   map[string]*Ext  `json:"ext"`
 	Sync  SyncStatus       `json:"sync"`
+	// Aliases maps a repo key as written in scripts to the canonical key
+	// GitHub redirects it to (renamed/transferred repos are stored once).
+	Aliases map[string]string `json:"aliases,omitempty"`
+	Apt     *AptState         `json:"apt,omitempty"`
+}
+
+// canon resolves a repo key through the alias table.
+func (st *State) canon(k string) string {
+	if c, ok := st.Aliases[k]; ok && c != "" {
+		return c
+	}
+	return k
 }
 
 type Store struct {
@@ -112,6 +138,9 @@ func OpenStore(dataDir string, seed bool) (*Store, error) {
 			s.st.Ext = map[string]*Ext{}
 		}
 		s.st.Sync.Running = false
+		if s.st.Apt != nil {
+			s.st.Apt.Running, s.st.Apt.Progress = false, ""
+		}
 	case errors.Is(err, os.ErrNotExist):
 		if seed {
 			for _, a := range defaultApps() {
@@ -267,7 +296,6 @@ func defaultApps() []*App {
 	return []*App{
 		mk("zimzim", "sahand363/zimzim", "bash <(curl -Ls https://raw.githubusercontent.com/sahand363/zimzim/main/install.sh)"),
 		mk("loadinme", "sahand363/loadinme", "curl -fsSL https://raw.githubusercontent.com/sahand363/loadinme/main/install.sh | bash"),
-		mk("easy-xui", "sahand363/easy-xui", "bash <(curl -Ls https://raw.githubusercontent.com/sahand363/easy-xui/main/install.sh)"),
 		mk("blendartai", "sahand363/blendartai", "bash <(curl -fsSL https://raw.githubusercontent.com/sahand363/blendartai/main/scripts/install.sh)"),
 		mk("sahand-mirror", "sahand363/sahand-mirror", "bash <(curl -Ls https://raw.githubusercontent.com/sahand363/sahand-mirror/main/install.sh)"),
 	}

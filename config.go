@@ -30,6 +30,17 @@ type Config struct {
 	TLS           bool   `json:"tls"`             // serve HTTPS with an internal-CA cert
 	AptMirrorHint string `json:"apt_mirror_hint"` // shown in install wrapper output
 	MaxUploadMB   int64  `json:"max_upload_mb"`   // bundle upload cap
+
+	// v0.2
+	AptProxyOff bool              `json:"apt_proxy_off,omitempty"` // disable the apt caching proxy
+	AptTargets  []string          `json:"apt_targets,omitempty"`   // "ubuntu/noble"...; nil = defaults
+	AptUpstream map[string]string `json:"apt_upstream,omitempty"`  // family -> upstream base URL
+	AptInternal map[string]string `json:"apt_internal,omitempty"`  // family -> internal mirror used when upstream fails
+	TrustXFF    bool              `json:"trust_xff,omitempty"`     // /myip honours X-Forwarded-For
+	AIProvider  string            `json:"ai_provider,omitempty"`   // "" | gemini | openai
+	AIBaseURL   string            `json:"ai_base_url,omitempty"`   // OpenAI-compatible base, e.g. https://api.openai.com/v1
+	AIModel     string            `json:"ai_model,omitempty"`
+	AIKey       string            `json:"ai_key,omitempty"` // write-only in UI
 }
 
 func defaultConfig() Config {

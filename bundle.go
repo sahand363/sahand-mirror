@@ -83,11 +83,14 @@ func ExportBundle(w io.Writer, data string, st *State) (*Manifest, error) {
 		return add(name, f, fi.Size(), mode, fi.ModTime())
 	}
 	st.Sync.Running, st.Sync.Progress = false, ""
+	if st.Apt != nil {
+		st.Apt.Running, st.Apt.Progress = false, ""
+	}
 	sb, _ := json.MarshalIndent(st, "", " ")
 	if err := add("state.json", bytes.NewReader(sb), int64(len(sb)), 0o644, time.Now()); err != nil {
 		return nil, err
 	}
-	for _, sub := range []string{"repos", "ext"} {
+	for _, sub := range []string{"repos", "ext", "scripts", "apt"} {
 		root := filepath.Join(data, sub)
 		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
@@ -157,7 +160,7 @@ func ExportBundleFile(out, data string, store *Store) (*Manifest, error) {
 	return m, os.Rename(f.Name(), out)
 }
 
-var bundlePrefixes = []string{"repos/", "ext/", "self/"}
+var bundlePrefixes = []string{"repos/", "ext/", "self/", "scripts/", "apt/"}
 
 // ImportBundle verifies every file against manifest.json, then merges it.
 func ImportBundle(src string, data string, store *Store) (*Manifest, error) {
@@ -296,6 +299,25 @@ func mergeState(st, b *State) {
 	for u, be := range b.Ext {
 		if le := st.Ext[u]; le == nil || be.Fetched.After(le.Fetched) {
 			st.Ext[u] = be
+		}
+	}
+	for k, v := range b.Aliases {
+		if st.Aliases == nil {
+			st.Aliases = map[string]string{}
+		}
+		st.Aliases[k] = v
+	}
+	if b.Apt != nil {
+		if st.Apt == nil {
+			st.Apt = &AptState{}
+		}
+		if st.Apt.Targets == nil {
+			st.Apt.Targets = map[string]*AptTargetState{}
+		}
+		for k, bt := range b.Apt.Targets {
+			if lt := st.Apt.Targets[k]; lt == nil || bt.At.After(lt.At) {
+				st.Apt.Targets[k] = bt
+			}
 		}
 	}
 	st.Sync.LastImport = time.Now()

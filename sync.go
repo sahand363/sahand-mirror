@@ -23,6 +23,8 @@ type Syncer struct {
 	data  string
 	mu    sync.Mutex
 	newGH func(token string) *GH
+	// fallbackDocs reads scripts straight from the mirror (apps synced by v0.1)
+	fallbackDocs func(id string) []ScriptDoc
 }
 
 func NewSyncer(store *Store, cfg func() Config, data string) *Syncer {
@@ -151,6 +153,7 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 	var exts []string
 	seenExt := map[string]bool{}
 	var discErr error
+	var docs []ScriptDoc
 	scan := func(res ScanResult) []string {
 		var next []string
 		for _, r := range res.Repos {
@@ -215,12 +218,27 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 			}
 			run.ok++
 			if looksLikeScript(body) {
+				dup := false
+				for _, d := range docs {
+					dup = dup || d.Body == string(body)
+				}
+				if !dup { // master/main and owner-case variants often return the same file
+					docs = append(docs, ScriptDoc{URL: fetchURL, Body: string(body)})
+				}
 				queue = append(queue, scan(scanScript(string(body)))...)
 			}
 		}
 	}
 	if a.Recipe != "" {
 		scan(scanScript(a.Recipe))
+	}
+	if len(docs) > 0 {
+		if a.Recipe != "" {
+			docs = append(docs, ScriptDoc{URL: "recipe", Body: a.Recipe})
+		}
+		if err := saveScripts(s.data, a.ID, docs); err != nil {
+			log.Printf("save scripts %s: %v", a.ID, err)
+		}
 	}
 
 	// persist discovery
@@ -241,7 +259,13 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 		if p == nil {
 			return
 		}
-		p.Command, p.Repos, p.Raw, p.Externals = a.Command, repoKeys, rawURLs, exts
+		var keys []string
+		for _, k := range repoKeys {
+			if k = st.canon(k); !contains(keys, k) {
+				keys = append(keys, k)
+			}
+		}
+		p.Command, p.Repos, p.Raw, p.Externals = a.Command, keys, rawURLs, exts
 		for _, e := range exts {
 			st.Ext[e] = orNewExt(st.Ext[e], e)
 		}
@@ -277,6 +301,15 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 	// repositories
 	for _, r := range repos {
 		k := strings.ToLower(r)
+		var off bool
+		s.store.View(func(st *State) {
+			if p := st.App(a.ID); p != nil {
+				off = contains(p.Disabled, k) || contains(p.Disabled, st.canon(k))
+			}
+		})
+		if off {
+			continue
+		}
 		err, done := run.done[k]
 		if !done {
 			err = s.syncRepo(ctx, run, r)
@@ -308,11 +341,50 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 			return
 		}
 		p.LastSync, p.Note, p.Error = time.Now(), strings.Join(notes, "؛ "), strings.Join(errs, "\n")
+		// redirected repos are stored once, under their canonical name
+		var keys []string
+		for _, k := range p.Repos {
+			if k = st.canon(k); !contains(keys, k) {
+				keys = append(keys, k)
+			}
+		}
+		p.Repos = keys
 	})
+	s.Analyze(a.ID, docs)
 	if len(errs) > 0 {
 		return errors.New(errs[0])
 	}
 	return nil
+}
+
+// Analyze runs the readiness analyzer for an app. docs == nil uses the
+// scripts saved by the last successful discovery (works offline).
+func (s *Syncer) Analyze(id string, docs []ScriptDoc) {
+	if docs == nil {
+		docs = loadSavedScripts(s.data, id)
+	}
+	if docs == nil && s.fallbackDocs != nil {
+		docs = s.fallbackDocs(id)
+	}
+	if docs == nil {
+		return
+	}
+	var urls []string
+	for _, d := range docs {
+		urls = append(urls, d.URL)
+	}
+	f := analyzeScripts(docs)
+	s.store.Update(func(st *State) {
+		p := st.App(id)
+		if p == nil {
+			return
+		}
+		r := &Readiness{Analyzed: time.Now(), Scripts: urls, Findings: f}
+		if p.Readiness != nil {
+			r.AI, r.AIAt, r.AIModel = p.Readiness.AI, p.Readiness.AIAt, p.Readiness.AIModel
+		}
+		p.Readiness = r
+	})
 }
 
 func orNewExt(e *Ext, u string) *Ext {
@@ -366,7 +438,11 @@ func policyFor(st *State, key string, globalKeep int) repoPolicy {
 	p := repoPolicy{keep: 0}
 	all := false
 	for _, a := range st.Apps {
-		if !contains(a.Repos, key) {
+		in := false
+		for _, k := range a.enabledRepos() {
+			in = in || st.canon(k) == key
+		}
+		if !in {
 			continue
 		}
 		k := a.Keep
@@ -385,7 +461,7 @@ func policyFor(st *State, key string, globalKeep int) repoPolicy {
 				p.archs[x] = true
 			}
 		}
-		if a.Exclude != "" && strings.EqualFold(a.Repo, key) && p.exclude == nil {
+		if a.Exclude != "" && (strings.EqualFold(a.Repo, key) || st.canon(strings.ToLower(a.Repo)) == key) && p.exclude == nil {
 			p.exclude, _ = regexp.Compile(a.Exclude)
 		}
 	}
@@ -478,7 +554,7 @@ func selectReleases(rels []Release, keep int, pre bool) []Release {
 	return out
 }
 
-func (s *Syncer) syncRepo(ctx context.Context, run *syncRun, name string) error {
+func (s *Syncer) syncRepo(ctx context.Context, run *syncRun, name string) (retErr error) {
 	o, r := splitKey(name)
 	key := repoKey(o, r)
 	gh := run.gh
@@ -489,6 +565,25 @@ func (s *Syncer) syncRepo(ctx context.Context, run *syncRun, name string) error 
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	o, r = splitKey(inf.Name)
+	if canon := repoKey(o, r); canon != key {
+		// renamed/transferred repo: remember the alias, store under the canonical key only
+		alias := key
+		s.store.Update(func(st *State) {
+			if st.Aliases == nil {
+				st.Aliases = map[string]string{}
+			}
+			st.Aliases[alias] = canon
+			if old := st.Repos[alias]; old != nil {
+				delete(st.Repos, alias)
+				os.RemoveAll(repoDir(s.data, alias))
+			}
+		})
+		if err, done := run.done[canon]; done {
+			return err
+		}
+		key = canon
+		defer func() { run.done[canon] = retErr }()
+	}
 	cfg := s.cfg()
 	var pol repoPolicy
 	var old Repo
@@ -636,8 +731,8 @@ func (s *Syncer) pruneLocked(st *State) {
 	used := map[string]bool{}
 	usedExt := map[string]bool{}
 	for _, a := range st.Apps {
-		for _, k := range a.Repos {
-			used[k] = true
+		for _, k := range a.enabledRepos() {
+			used[st.canon(k)] = true
 		}
 		for _, e := range a.Externals {
 			usedExt[e] = true
@@ -647,6 +742,22 @@ func (s *Syncer) pruneLocked(st *State) {
 		if !used[k] {
 			delete(st.Repos, k)
 			os.RemoveAll(repoDir(s.data, k))
+		}
+	}
+	for k, c := range st.Aliases {
+		if !used[c] {
+			delete(st.Aliases, k)
+		}
+	}
+	keepScripts := map[string]bool{}
+	for _, a := range st.Apps {
+		keepScripts[slugify(a.ID)] = true
+	}
+	if ents, err := os.ReadDir(filepath.Join(s.data, "scripts")); err == nil {
+		for _, e := range ents {
+			if !keepScripts[e.Name()] {
+				os.RemoveAll(filepath.Join(s.data, "scripts", e.Name()))
+			}
 		}
 	}
 	for u, e := range st.Ext {

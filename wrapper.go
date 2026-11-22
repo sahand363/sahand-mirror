@@ -18,10 +18,22 @@ const wrapperFuncs = `__sm_enc() {
   done
   printf '%s' "$o"
 }
+# __sm_ip URL: IP-detection services (with or without scheme) -> hub /myip
+__sm_ip() {
+  local p="$1" h rest q=""
+  [ -n "${__SM_IPH:-}" ] || return 1
+  p="${p#http://}"; p="${p#https://}"
+  h="${p%%[/?#]*}"; rest="${p:${#h}}"
+  case "$rest" in *\?*) q="?${rest#*\?}"; rest="${rest%%\?*}" ;; esac
+  rest="${rest%/}"; h="${h,,}"
+  case " ${__SM_IPH} " in *" $h$rest "*) REPLY="${MIRROR_URL:-}/myip$q"; return 0 ;; esac
+  return 1
+}
 # __sm_rw URL: sets REPLY to the hub URL; returns 0 when the URL targets the hub.
 __sm_rw() {
   local u="$1" p low
   REPLY="$u"
+  __sm_ip "$u" && return 0
   case "$u" in http://*|https://*) ;; *) return 1 ;; esac
   [ "${u#"${MIRROR_URL:-}"}" != "$u" ] && return 0
   p="${u#*://}"
@@ -79,7 +91,57 @@ __sm_run() {
 }
 curl() { __sm_run curl "$@"; }
 wget() { __sm_run wget "$@"; }
+# apt through the hub's caching proxy, for this install only
+__sm_apt_prep() {
+  local d="${__SM_BIN:-/tmp}/.apt" e="${__SM_APT_ETC:-/etc/apt}" f hp host port re hosts=() bad=()
+  [ -e "$d/.done" ] && return 0
+  mkdir -p "$d/sources.list.d" && : >"$d/.done"
+  [ "${__SM_APT_HTTPS:-auto}" = keep ] && return 0
+  mapfile -t hosts < <(cat "$e/sources.list" "$e"/sources.list.d/*.list "$e"/sources.list.d/*.sources 2>/dev/null | grep -v '^[[:space:]]*#' | grep -oE 'https://[^/[:space:]"]+' | sed 's#^https://##' | sort -u)
+  for hp in "${hosts[@]}"; do
+    hp="${hp##*@}"; host="${hp%%:*}"; port=443
+    [ "$host" != "$hp" ] && port="${hp##*:}"
+    timeout 4 bash -c "exec 3<>/dev/tcp/$host/$port" 2>/dev/null || bad+=("$host")
+  done
+  [ ${#bad[@]} -eq 0 ] && return 0
+  re="https://([^/@ ]*@)?($(IFS='|'; echo "${bad[*]//./\\.}"))([:/ ]|\$)"
+  if [ -f "$e/sources.list" ]; then grep -Ev "$re" "$e/sources.list" >"$d/sources.list"; else : >"$d/sources.list"; fi
+  for f in "$e"/sources.list.d/*; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      *.list) grep -Ev "$re" "$f" >"$d/sources.list.d/${f##*/}" ;;
+      *.sources) awk -v re="$re" 'BEGIN { RS = ""; ORS = "\n\n" } $0 !~ re' "$f" >"$d/sources.list.d/${f##*/}" ;;
+    esac
+  done
+  : >"$d/.filtered"
+  echo "[sahand-mirror] apt: unreachable https repos skipped for this install: ${bad[*]}" >&2
+}
+__sm_apt() {
+  local tool="$1" real o=() sub="" x skip=0 rc
+  shift
+  real="$(__sm_real "$tool")" || { echo "sahand-mirror: $tool not found" >&2; return 127; }
+  if [ -n "${__SM_APT_PROXY:-}" ]; then
+    __sm_apt_prep
+    o=(-o "Acquire::http::Proxy=${__SM_APT_PROXY}" -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=15 -o Acquire::Retries=1)
+    if [ -e "${__SM_BIN:-/tmp}/.apt/.filtered" ]; then
+      o+=(-o "Dir::Etc::SourceList=${__SM_BIN}/.apt/sources.list" -o "Dir::Etc::SourceParts=${__SM_BIN}/.apt/sources.list.d")
+    fi
+  fi
+  for x in "$@"; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case "$x" in -o|-c|-t) skip=1 ;; -*) ;; *) sub="$x"; break ;; esac
+  done
+  [ -n "${__SM_TRACE:-}" ] && echo "[sahand-mirror] $tool ${o[*]} $*" >&2
+  "$real" "${o[@]}" "$@"; rc=$?
+  if [ "$rc" != 0 ] && [ "$sub" = update ] && [ -n "${__SM_APT_PROXY:-}" ]; then
+    echo "[sahand-mirror] apt update reported errors (unreachable repos?); continuing with the lists apt has" >&2
+    return 0
+  fi
+  return $rc
+}
 `
+
+const wrapperFuncNames = "__sm_enc __sm_ip __sm_rw __sm_real __sm_run __sm_apt_prep __sm_apt"
 
 type wrapperOpts struct {
 	Hub      string // MIRROR_URL
@@ -93,6 +155,20 @@ type wrapperOpts struct {
 	Externs  []string // mirrored external URLs
 	AptHint  string
 	TraceAll bool
+	AptProxy string // proxy URL for apt (empty = apt untouched)
+	AptHTTPS string // auto | keep
+}
+
+// aptProxyURL builds the Acquire::http::Proxy value (key as basic-auth password).
+func aptProxyURL(hub, key string) string {
+	hub = strings.TrimRight(hub, "/")
+	if !strings.HasPrefix(hub, "http://") {
+		return "" // apt cannot use an https proxy reliably
+	}
+	if key != "" {
+		return "http://sm:" + key + "@" + strings.TrimPrefix(hub, "http://") + "/"
+	}
+	return hub + "/"
 }
 
 var pipeShellRe = regexp.MustCompile(`\|\s*(sudo\s+)?(bash|sh)\s*$`)
@@ -129,6 +205,12 @@ func buildWrapper(o wrapperOpts) string {
 		trace = "1"
 	}
 	w("export __SM_TRACE=%s\n", shQuote(trace))
+	w("export __SM_IPH=%s\n", shQuote(strings.Join(ipDetectEntries, " ")))
+	https := o.AptHTTPS
+	if https != "keep" {
+		https = "auto"
+	}
+	w("export __SM_APT_PROXY=%s __SM_APT_HTTPS=%s\n", shQuote(o.AptProxy), shQuote(https))
 	w("export __SM_BIN=\"$(mktemp -d /tmp/sahand-mirror.XXXXXX)\"\n")
 	w("trap 'rm -rf \"$__SM_BIN\"' EXIT\n")
 	if o.CAPEM != "" {
@@ -137,15 +219,26 @@ func buildWrapper(o wrapperOpts) string {
 		w("export __SM_CA=''\n")
 	}
 	b.WriteString(wrapperFuncs)
-	b.WriteString("export -f __sm_enc __sm_rw __sm_real __sm_run curl wget\n")
-	// PATH shims: any child (sh, python, make...) calling curl/wget is rewritten too
-	b.WriteString(`for __t in curl wget; do
-  { echo '#!/usr/bin/env bash'; declare -f __sm_enc __sm_rw __sm_real __sm_run; echo "__sm_run $__t \"\$@\""; } >"$__SM_BIN/$__t"
+	b.WriteString("export -f " + wrapperFuncNames + " curl wget\n")
+	if o.AptProxy != "" {
+		b.WriteString("apt-get() { __sm_apt apt-get \"$@\"; }\napt() { __sm_apt apt \"$@\"; }\nexport -f apt-get apt\n")
+	}
+	// PATH shims: any child (sh, python, make...) calling curl/wget/apt-get is rewritten too
+	tools := "curl wget"
+	if o.AptProxy != "" {
+		tools += " apt-get apt"
+	}
+	b.WriteString(`for __t in ` + tools + `; do
+  __f=__sm_run; case "$__t" in apt|apt-get) __f=__sm_apt ;; esac
+  { echo '#!/usr/bin/env bash'; declare -f ` + wrapperFuncNames + `; echo "$__f $__t \"\$@\""; } >"$__SM_BIN/$__t"
   chmod +x "$__SM_BIN/$__t"
 done
 export PATH="$__SM_BIN:$PATH"
 `)
 	w("echo -e \"\\033[1;36m[sahand-mirror]\\033[0m نصب %s از هاب داخلی: $MIRROR_URL\" >&2\n", o.App.ID)
+	if o.AptProxy != "" {
+		w("echo \"[sahand-mirror] apt-get/apt از کش apt هاب استفاده می‌کنند (فقط برای همین نصب)\" >&2\n")
+	}
 	if o.AptHint != "" {
 		w("echo \"[sahand-mirror] apt/OS mirror hint: %s\" >&2\n", strings.ReplaceAll(o.AptHint, "\"", ""))
 	}
