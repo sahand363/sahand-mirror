@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -116,7 +117,22 @@ func TestResolveDeps(t *testing.T) {
 	}
 }
 
+// offlineAptClient makes the apt proxy unable to reach anything but the
+// local fake archive, so tests behave the same with or without internet.
+func offlineAptClient(t *testing.T) {
+	old := aptClient
+	tr := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if !strings.HasPrefix(addr, "127.0.0.1:") {
+			return nil, fmt.Errorf("test: no internet (%s)", addr)
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}}
+	aptClient = &http.Client{Transport: tr}
+	t.Cleanup(func() { aptClient = old })
+}
+
 func testServer(t *testing.T, mut func(*Config)) *Server {
+	offlineAptClient(t)
 	dir := t.TempDir()
 	cfgFile := dir + "/config.json"
 	c := defaultConfig()
