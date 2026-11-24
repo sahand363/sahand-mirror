@@ -41,7 +41,11 @@ var live = &liveSync{}
 func (l *liveSync) begin(total int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	*l = liveSync{running: true, start: time.Now(), total: total, files: map[string]*liveFile{}}
+	// reset field by field: assigning a whole struct would also replace the
+	// held mutex and crash on Unlock.
+	l.running, l.start, l.end, l.total, l.done = true, time.Now(), time.Time{}, total, 0
+	l.app, l.planned, l.got, l.allBytes = "", 0, 0, 0
+	l.files, l.log, l.samples = map[string]*liveFile{}, nil, nil
 }
 
 func (l *liveSync) finish() {
