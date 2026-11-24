@@ -65,6 +65,11 @@ func NewServer(cfg *ConfigStore) (*Server, error) {
 	s.sync = NewSyncer(store, cfg.Get, c.DataDir)
 	s.emu = &Emulator{store: store, data: c.DataDir}
 	s.sync.fallbackDocs = s.mirrorDocs
+	if tag, err := importCompanion(store, c.DataDir, embeddedCompanion); err != nil {
+		log.Printf("bundled companion: %v", err)
+	} else if tag != "" {
+		log.Printf("bundled sahand-mirror-companion %s is ready to serve", tag)
+	}
 	return s, nil
 }
 
@@ -670,6 +675,8 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request, id string, re
 		writeJSON(w, 200, map[string]any{"app": a, "repos": repos, "ext": ext, "hub": s.hubURL(r), "key": c.AccessKey, "tls": c.TLS,
 			"readiness": items, "summary": sum, "apt_packages": aptPackagesOf(a), "apt_targets": targets, "apt": st.Apt,
 			"ai_enabled": c.AIProvider != "" && c.AIKey != "", "apt_proxy": !c.AptProxyOff})
+	case len(rest) == 0 && r.Method == "DELETE" && a.ID == companionID:
+		writeJSON(w, 400, map[string]string{"error": "Companion همراه هاب است و حذف نمی‌شود"})
 	case len(rest) == 0 && r.Method == "DELETE":
 		s.store.Update(func(st *State) {
 			for i, x := range st.Apps {
@@ -1068,6 +1075,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	go s.sync.scheduler(ctx)
 	go s.syncNeverSynced(ctx)
+	go s.companionWatch(ctx.Done())
 	go func() { // apps synced by v0.1 get a readiness checklist from their mirrored scripts
 		var ids []string
 		s.store.View(func(st *State) {

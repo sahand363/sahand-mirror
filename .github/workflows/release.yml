@@ -22,6 +22,20 @@ jobs:
           go vet ./...
           go test ./...
 
+      - name: Bundle the latest sahand-mirror-companion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release view --repo sahand363/sahand-mirror-companion --json tagName -q .tagName)
+          gh release download "$tag" --repo sahand363/sahand-mirror-companion --dir companion --clobber \
+            --pattern 'install.sh' --pattern 'install.sh.sha256' \
+            --pattern 'sahand-mirror-companion-linux-*.tar.gz' --pattern 'sahand-mirror-companion-linux-*.tar.gz.sha256'
+          curl -fsSL "https://raw.githubusercontent.com/sahand363/sahand-mirror-companion/$tag/README.md" -o companion/README.md
+          echo "$tag" > companion/VERSION
+          ls -la companion
+          test -s companion/sahand-mirror-companion-linux-amd64.tar.gz
+
       - name: Build linux amd64 / arm64 / armv7
         env:
           TAG: ${{ github.ref_name }}

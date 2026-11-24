@@ -193,7 +193,7 @@ async function pageApp(id) {
     <td>${x.dynamic ? '<span class="pill">متغیر دارد</span>' : `<label class="inline"><input type="checkbox" data-ext="${esc(x.url)}" ${x.mirror ? 'checked' : ''}> آینه شود</label>`}</td>
     <td>${x.error ? `<span class="pill bad" title="${esc(x.error)}">خطا</span>` : (x.fetched && !x.fetched.startsWith('0001') ? `<span class="pill ok">${size(x.size)}</span>` : '')}</td></tr>`).join('');
   main.innerHTML = `<div class="row"><h1 class="grow">${esc(a.name)} <span class="muted ltr">${esc(a.repo || '')}</span></h1>
-    <button id="sync">همگام‌سازی</button><button id="del" class="danger">حذف</button></div>
+    <button id="sync">همگام‌سازی</button>${a.id === 'sahand-mirror-companion' ? '<span class="muted">همراه هاب؛ همیشه آماده و هر ساعت به‌روز می‌شود</span>' : '<button id="del" class="danger">حذف</button>'}</div>
   ${a.error ? `<div class="card err ltr">${esc(a.error)}</div>` : ''}${a.note ? `<div class="card note">${esc(a.note)}</div>` : ''}
   ${readinessCard(d)}
   <div class="card"><h2>دستور نصب روی سرور داخلی</h2>
@@ -222,7 +222,7 @@ async function pageApp(id) {
   const setCmd = () => { const c = mkCmd($('#ver').value); $('#cmdbox').innerHTML = `<span>${esc(c)}</span><button data-copy="${esc(c)}">کپی</button>`; };
   $('#ver').onchange = setCmd; setCmd();
   $('#sync').onclick = async () => { try { await api('apps/' + a.id + '/sync', { method: 'POST' }); toast('همگام‌سازی شروع شد'); watch(); } catch (e) { toast(e.message); } };
-  $('#del').onclick = async () => { if (!confirm('حذف ' + a.name + ' و فایل‌هایش؟')) return; await api('apps/' + a.id, { method: 'DELETE' }); location.hash = '#/apps'; };
+  if ($('#del')) $('#del').onclick = async () => { if (!confirm('حذف ' + a.name + ' و فایل‌هایش؟')) return; await api('apps/' + a.id, { method: 'DELETE' }); location.hash = '#/apps'; };
   $('#pf').onsubmit = async e => {
     e.preventDefault(); const f = e.target;
     const archs = [...f.querySelectorAll('input[name=arch]:checked')].map(x => x.value);

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -79,10 +80,13 @@ func TestSeedMigrationOnce(t *testing.T) {
 	if !st.migrateSeeds() || st.App(companionID) == nil {
 		t.Fatal("companion should be added")
 	}
-	// user deletes it; must not come back
+	if st.migrateSeeds() {
+		t.Fatal("second migration changed state")
+	}
+	// the companion ships with the hub: it always comes back
 	st.Apps = st.Apps[:1]
-	if st.migrateSeeds() || st.App(companionID) != nil {
-		t.Fatal("deleted companion re-added")
+	if !st.migrateSeeds() || st.App(companionID) == nil {
+		t.Fatal("companion not restored")
 	}
 	if st.App("loadinme") != nil {
 		t.Fatal("old default re-added")
@@ -93,4 +97,52 @@ func req(p string) *http.Request {
 	r := httptest.NewRequest("GET", p, nil)
 	r.Host = "10.0.0.5:8686"
 	return r
+}
+
+func TestBundledCompanion(t *testing.T) {
+	s := testServer(t, nil)
+	mk := func(tag, body string) fstest.MapFS {
+		return fstest.MapFS{
+			"companion/VERSION":    {Data: []byte(tag + "\n")},
+			"companion/README.txt": {Data: []byte("x")},
+			"companion/install.sh": {Data: []byte("#!/bin/bash\necho companion " + tag + "\n")},
+			"companion/README.md":  {Data: []byte("# Companion")},
+			"companion/sahand-mirror-companion-linux-amd64.tar.gz": {Data: []byte(body)},
+		}
+	}
+	tag, err := importCompanion(s.store, s.data, mk("v0.1.2", "BIN-012"))
+	if err != nil || tag != "v0.1.2" {
+		t.Fatalf("import: %q %v", tag, err)
+	}
+	if tag, _ := importCompanion(s.store, s.data, mk("v0.1.2", "BIN-012")); tag != "" {
+		t.Fatal("re-imported the same version")
+	}
+	if tag, _ := importCompanion(s.store, s.data, mk("v0.1.1", "OLD")); tag != "" {
+		t.Fatal("older bundle replaced newer")
+	}
+	h := s.Handler()
+	check := func(p string, code int, want string) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req(p))
+		if w.Code != code || !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("%s: %d %q", p, w.Code, w.Body.String())
+		}
+	}
+	check("/gh/raw/sahand363/sahand-mirror-companion/main/install.sh", 200, "echo companion v0.1.2")
+	check("/gh/web/sahand363/sahand-mirror-companion/releases/latest/download/sahand-mirror-companion-linux-amd64.tar.gz", 200, "BIN-012")
+	check("/companion", 200, "MIRROR_URL=")
+	check("/catalog/sahand-mirror-companion/readme", 200, "# Companion")
+	if tag, _ := importCompanion(s.store, s.data, mk("v0.1.10", "BIN-0110")); tag != "v0.1.10" {
+		t.Fatal("newer bundle not imported")
+	}
+	check("/gh/web/sahand363/sahand-mirror-companion/releases/latest/download/sahand-mirror-companion-linux-amd64.tar.gz", 200, "BIN-0110")
+}
+
+func TestVersionLess(t *testing.T) {
+	for _, c := range [][2]string{{"v0.1.2", "v0.1.10"}, {"", "v0.1.0"}, {"v0.9.9", "v1.0.0"}} {
+		if !versionLess(c[0], c[1]) || versionLess(c[1], c[0]) {
+			t.Fatal(c)
+		}
+	}
 }

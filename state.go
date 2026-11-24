@@ -328,6 +328,13 @@ func (st *State) migrateSeeds() bool {
 		}
 		changed = true
 	}
+	if st.App(companionID) == nil { // the companion always ships with the hub
+		st.Apps = append(st.Apps, defaultCompanionApp())
+		if !contains(st.Seeded, companionID) {
+			st.Seeded = append(st.Seeded, companionID)
+		}
+		changed = true
+	}
 	for _, a := range defaultApps() {
 		if contains(st.Seeded, a.ID) {
 			continue
