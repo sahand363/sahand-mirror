@@ -136,8 +136,9 @@ async function pageApps() {
     const st = a.error ? '<span class="pill bad">خطا</span>' : (a.last_sync && !a.last_sync.startsWith('0001') ? '<span class="pill ok">آینه شده</span>' : '<span class="pill warn">همگام نشده</span>');
     return `<tr><td><a href="#/app/${esc(a.id)}"><b>${esc(a.name)}</b></a><div class="muted ltr">${esc(a.repo || '')}</div></td>
       <td>${a.kind === 'repo' ? 'مخزن' : 'دستور نصب'}</td><td class="ltr">${esc(latest)}</td><td>${fa((a.repos || []).length)}</td>
-      <td>${st}</td><td class="muted">${esc(when(a.last_sync))}</td></tr>`;
+      <td>${st}</td><td class="ltr">${size((d.sizes || {})[a.id])}</td><td class="muted">${esc(when(a.last_sync))}</td></tr>`;
   }).join('');
+  const total = Object.values(d.sizes || {}).reduce((x, y) => x + y, 0);
   main.innerHTML = `<h1>برنامه‌ها</h1>
   <div class="card"><h2>افزودن برنامه</h2>
     <div class="tabs"><button class="on" data-t="cmd">با دستور نصب</button><button data-t="repo">با مخزن گیت‌هاب</button></div>
@@ -150,9 +151,9 @@ async function pageApps() {
       <p><button>افزودن و همگام‌سازی</button></p>
       <p class="muted">هاب اسکریپت نصب را می‌خواند، همهٔ مخزن‌های گیت‌هاب داخلش را پیدا می‌کند و N ریلیز آخر هرکدام را با همهٔ فایل‌ها آینه می‌کند. آدرس‌های غیرگیت‌هابی به‌عنوان «وابستگی خارجی» نمایش داده می‌شوند.</p>
     </form></div>
-  <div class="card"><div class="row"><h2 class="grow">فهرست (${fa(d.apps.length)})</h2>
+  <div class="card"><div class="row"><h2 class="grow">فهرست (${fa(d.apps.length)}) <span class="muted ltr">${total ? size(total) : ''}</span></h2>
     <button id="syncAll" class="ghost">همگام‌سازی همه</button><a class="btn ghost" href="/api/apps.json" download>دانلود apps.json</a></div>
-    <table><tr><th>نام</th><th>نوع</th><th>آخرین نسخه</th><th>مخزن‌ها</th><th>وضعیت</th><th>آخرین همگام‌سازی</th></tr>${rows}</table></div>`;
+    <table><tr><th>نام</th><th>نوع</th><th>آخرین نسخه</th><th>مخزن‌ها</th><th>وضعیت</th><th>حجم</th><th>آخرین همگام‌سازی</th></tr>${rows}</table></div>`;
   let mode = 'cmd';
   main.querySelectorAll('.tabs button').forEach(b => b.onclick = e => {
     e.preventDefault(); mode = b.dataset.t;

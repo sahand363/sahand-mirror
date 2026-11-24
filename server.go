@@ -307,7 +307,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, s.status(r))
 	case p == "apps" && r.Method == "GET":
 		st := s.store.Snapshot()
-		writeJSON(w, 200, map[string]any{"apps": st.Apps, "repos": st.Repos})
+		writeJSON(w, 200, map[string]any{"apps": st.Apps, "repos": st.Repos, "sizes": s.appSizes(st)})
 	case p == "apps" && r.Method == "POST":
 		var in struct {
 			Repo, Command, Name string
@@ -1229,4 +1229,35 @@ func (s *Server) syncNeverSynced(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// appSizes: bytes on disk per app id (its mirrored repos plus mirrored
+// external files). A repo shared by two apps counts toward both.
+func (s *Server) appSizes(st *State) map[string]int64 {
+	repo := map[string]int64{}
+	out := map[string]int64{}
+	for _, a := range st.Apps {
+		var n int64
+		seen := map[string]bool{}
+		for _, k := range a.Repos {
+			k = st.canon(strings.ToLower(k))
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			if _, ok := repo[k]; !ok {
+				repo[k] = dirSize(repoDir(s.data, k))
+			}
+			n += repo[k]
+		}
+		for _, u := range a.Externals {
+			if e := st.Ext[u]; e != nil && e.Mirror && !e.Fetched.IsZero() {
+				if fi, err := os.Stat(extPath(s.data, u)); err == nil {
+					n += fi.Size()
+				}
+			}
+		}
+		out[a.ID] = n
+	}
+	return out
 }

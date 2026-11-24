@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-var version = "v0.3.4"
+var version = "v0.3.5"
 
 //go:embed install.sh
 var installScript []byte
