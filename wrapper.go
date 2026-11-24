@@ -235,9 +235,9 @@ func buildWrapper(o wrapperOpts) string {
 done
 export PATH="$__SM_BIN:$PATH"
 `)
-	w("echo -e \"\\033[1;36m[sahand-mirror]\\033[0m نصب %s از هاب داخلی: $MIRROR_URL\" >&2\n", o.App.ID)
+	w("echo -e \"\\033[1;36m[sahand-mirror]\\033[0m installing %s from internal hub: $MIRROR_URL\" >&2\n", o.App.ID)
 	if o.AptProxy != "" {
-		w("echo \"[sahand-mirror] apt-get/apt از کش apt هاب استفاده می‌کنند (فقط برای همین نصب)\" >&2\n")
+		w("echo \"[sahand-mirror] apt-get/apt use the hub apt cache (this install only)\" >&2\n")
 	}
 	if o.AptHint != "" {
 		w("echo \"[sahand-mirror] apt/OS mirror hint: %s\" >&2\n", strings.ReplaceAll(o.AptHint, "\"", ""))

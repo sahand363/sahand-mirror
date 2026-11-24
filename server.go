@@ -928,6 +928,11 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if a.LastSync.IsZero() && a.Recipe == "" && (a.Repo == "" || st.Repos[strings.ToLower(a.Repo)] == nil) && !(len(parts) == 2 && parts[1] == "recipe") {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		io.WriteString(w, notMirroredScript(a.ID))
+		return
+	}
 	if len(parts) == 2 && parts[1] == "recipe" {
 		if a.Recipe == "" {
 			http.Error(w, "no recipe", 404)
@@ -1062,6 +1067,7 @@ func (s *Server) Run(ctx context.Context) error {
 		log.Printf("control socket: %v", err)
 	}
 	go s.sync.scheduler(ctx)
+	go s.syncNeverSynced(ctx)
 	go func() { // apps synced by v0.1 get a readiness checklist from their mirrored scripts
 		var ids []string
 		s.store.View(func(st *State) {
@@ -1169,3 +1175,48 @@ func (s *Server) mirrorDocs(id string) []ScriptDoc {
 }
 
 var validArchs = []string{"amd64", "arm64", "armv7", "386", "other", "otheros"}
+
+// notMirroredScript is served instead of an install wrapper when the app was
+// added but never synced, so bash prints a clear reason instead of running
+// a 404 page as a script. ASCII only: SSH terminals often break on Persian.
+func notMirroredScript(id string) string {
+	id = strings.Map(func(r rune) rune {
+		if r == '\'' || r == '"' || r == '\\' || r == '$' || r == '`' || r < 32 {
+			return -1
+		}
+		return r
+	}, id)
+	return "echo '[sahand-mirror] ERROR: \"" + id + "\" is listed on this hub but has not been mirrored yet.' >&2\n" +
+		"echo '[sahand-mirror] Open the hub panel and press Sync while the hub still has international internet, then run this command again.' >&2\n" +
+		"exit 1\n"
+}
+
+// syncNeverSynced mirrors apps that were added (e.g. seeded by an upgrade)
+// but never synced, shortly after start, when direct sync is on.
+func (s *Server) syncNeverSynced(ctx context.Context) {
+	if !s.cfg.Get().DirectSync {
+		return
+	}
+	var ids []string
+	s.store.View(func(st *State) {
+		for _, a := range st.Apps {
+			if a.LastSync.IsZero() {
+				ids = append(ids, a.ID)
+			}
+		}
+	})
+	if len(ids) == 0 {
+		return
+	}
+	for i := 0; i < 30; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(20 * time.Second):
+		}
+		if err := s.sync.Start(ids); err == nil {
+			log.Printf("syncing never-synced apps: %v", ids)
+			return
+		}
+	}
+}

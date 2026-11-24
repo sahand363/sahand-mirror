@@ -56,6 +56,19 @@ func TestCatalogAndReadme(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req("/companion"))
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "has not been mirrored yet") || !strings.Contains(w.Body.String(), "exit 1") {
+		t.Fatalf("unmirrored companion: %d %s", w.Code, w.Body)
+	}
+	for _, r := range w.Body.String() {
+		if r > 127 {
+			t.Fatal("non-ASCII in terminal output")
+		}
+	}
+	s.store.Update(func(st *State) {
+		st.Repos["sahand363/sahand-mirror-companion"] = &Repo{Name: "sahand363/sahand-mirror-companion", DefaultBranch: "main"}
+	})
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req("/companion"))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "MIRROR_URL=") {
 		t.Fatalf("companion wrapper %d", w.Code)
 	}
