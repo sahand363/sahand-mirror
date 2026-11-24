@@ -56,6 +56,7 @@ func (s *Syncer) Run(ctx context.Context, ids []string) error {
 
 func (s *Syncer) progress(f string, a ...any) {
 	msg := fmt.Sprintf(f, a...)
+	live.note(msg)
 	s.store.Mutate(func(st *State) { st.Sync.Progress = msg })
 }
 
@@ -72,11 +73,24 @@ func (s *Syncer) run(ctx context.Context, ids []string) error {
 	gh := s.newGH(s.cfg().GitHubToken)
 	run := &syncRun{gh: gh, done: map[string]error{}}
 	var errs []string
+	live.begin(len(ids))
+	defer live.finish()
 	for _, id := range ids {
+		name := id
+		s.store.View(func(st *State) {
+			if a := st.App(id); a != nil && a.Name != "" {
+				name = a.Name
+			}
+		})
+		live.setApp(name)
 		if err := s.syncApp(ctx, run, id); err != nil {
 			errs = append(errs, id+": "+err.Error())
 			log.Printf("sync %s: %v", id, err)
+			live.note("خطا در " + name + ": " + err.Error())
+		} else {
+			live.note("✓ " + name)
 		}
+		live.appDone()
 	}
 	s.store.Update(func(st *State) {
 		st.Sync.Running, st.Sync.Progress = false, ""
@@ -623,6 +637,15 @@ func (s *Syncer) syncRepo(ctx context.Context, run *syncRun, name string) (retEr
 				assets = append(assets, as)
 			}
 		}
+		var need int64
+		for _, as := range assets {
+			if dst, err := safeJoin(dir, "releases", tagDir(rel.Tag), as.Name); err == nil {
+				if fi, err := os.Stat(dst); err != nil || (as.Size != 0 && fi.Size() != as.Size) {
+					need += as.Size
+				}
+			}
+		}
+		live.plan(need)
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 		sem := make(chan struct{}, 4)

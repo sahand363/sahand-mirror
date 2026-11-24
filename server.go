@@ -916,7 +916,7 @@ func (s *Server) status(r *http.Request) map[string]any {
 	if st.Apt != nil {
 		apt = map[string]any{"running": st.Apt.Running, "progress": st.Apt.Progress, "last_error": st.Apt.LastErr, "targets": len(st.Apt.Targets)}
 	}
-	return map[string]any{"version": version, "hub": s.hubURL(r), "companion_cmd": s.companionCmd(r), "sync": st.Sync, "disk_used": used, "readiness": ready, "apt": apt,
+	return map[string]any{"version": version, "hub": s.hubURL(r), "companion_cmd": s.companionCmd(r), "sync": st.Sync, "live": live.snapshot(), "disk_used": used, "readiness": ready, "apt": apt,
 		"apt_proxy": !c.AptProxyOff,
 		"disk_free": diskFree(s.data), "apps": len(st.Apps), "repos": len(st.Repos), "assets": assets,
 		"direct_sync": c.DirectSync, "sync_hour": c.SyncHour, "now": time.Now()}

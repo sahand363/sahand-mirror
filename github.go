@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -88,7 +89,9 @@ func (g *GH) download(ctx context.Context, u, dst string) (int64, string, error)
 		return 0, "", err
 	}
 	defer resp.Body.Close()
-	return copyAtomic(dst, resp.Body)
+	body, done := live.track(filepath.Base(dst), resp.ContentLength, resp.Body)
+	defer done()
+	return copyAtomic(dst, body)
 }
 
 type repoInfo struct {

@@ -7,7 +7,7 @@ const fa = n => Number(n).toLocaleString('fa-IR');
 const when = t => (!t || t.startsWith('0001')) ? 'هرگز' : new Date(t).toLocaleString('fa-IR');
 const size = n => { if (!n) return '—'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; };
 const ARCHS = [['amd64', 'amd64 (x86_64)'], ['arm64', 'arm64'], ['armv7', 'armv7'], ['386', '386'], ['other', 'سایر معماری‌ها (armv5/6, s390x, mips…)'], ['otheros', 'ویندوز/مک/BSD']];
-let pollTimer = null;
+let pollTimer = null, pollGen = 0;
 const ST_ICON = { handled: '<i class="dot handled"></i>', action: '<i class="dot action"></i>', offline: '<i class="dot offline"></i>', info: '<i class="dot"></i>' };
 const ST_TEXT = { handled: 'آماده', action: 'نیاز به اقدام', offline: 'آفلاین ممکن نیست', info: 'توضیح' };
 const CAT_TEXT = { pkg: 'بسته‌های سیستم‌عامل', ipdetect: 'سرویس‌های تشخیص IP', ssl: 'SSL / Let\'s Encrypt', docker: 'داکر', lang: 'pip / npm / go و …', aptrepo: 'مخزن‌های apt شخص ثالث', ext: 'آدرس‌های خارجی (غیر گیت‌هاب)', ai: 'نظر هوش مصنوعی' };
@@ -49,7 +49,7 @@ function saveBlob(blob, name) {
 
 // ---------- login ----------
 function showLogin() {
-  clearInterval(pollTimer);
+  clearTimeout(pollTimer); pollGen++;
   $('#top').classList.add('hidden'); $('#banner').classList.add('hidden');
   main.innerHTML = `<form class="card login" id="lf"><h1>ورود به سهند میرور</h1>
     <label>نام کاربری</label><input name="u" value="admin" autocomplete="username" class="ltr">
@@ -77,12 +77,43 @@ async function refreshBanner() {
   else if (!lastTry) { b.classList.add('warn'); b.textContent = 'هنوز همگام‌سازی نشده است'; }
   else if (sy.last_error) { b.classList.add('warn'); b.textContent = '✅ اتصال برقرار — ولی برخی برنامه‌ها خطا داشتند (' + when(sy.last_ok) + ')'; }
   else { b.classList.add('ok'); b.textContent = '✅ همگام با گیت‌هاب — آخرین همگام‌سازی موفق: ' + when(sy.last_ok); }
+  renderSyncBox(s.live);
   return s;
 }
 
+// ---------- live sync panel ----------
+let syncBoxClosedAt = '';
+function renderSyncBox(lv) {
+  const box = $('#syncbox'); if (!box) return;
+  const ended = lv && !lv.running && lv.ended && (Date.now() - new Date(lv.ended).getTime() < 15000);
+  if (!lv || (!lv.running && !ended) || (syncBoxClosedAt === lv.started + lv.running)) { box.classList.add('hidden'); return; }
+  const t = s => s >= 60 ? fa(Math.floor(s / 60)) + ' دقیقه ' + fa(s % 60) + ' ثانیه' : fa(s) + ' ثانیه';
+  const head = lv.running
+    ? `در حال همگام‌سازی <b>${esc(lv.app || '')}</b> · برنامهٔ ${fa(Math.min(lv.done + 1, lv.total))} از ${fa(lv.total)}`
+    : `همگام‌سازی تمام شد · ${fa(lv.total)} برنامه`;
+  const files = (lv.files || []).map(f => {
+    const p = f.size > 0 ? Math.min(100, Math.round(100 * f.got / f.size)) : 0;
+    return `<div class="sf"><span class="ltr nm">${esc(f.name)}</span><span class="ltr">${size(f.got)}${f.size > 0 ? ' / ' + size(f.size) : ''}</span><div class="bar"><i style="width:${p}%"></i></div></div>`;
+  }).join('');
+  box.innerHTML = `<div class="sb-top"><div class="grow">${head}</div><b>${fa(lv.percent)}٪</b><button class="ghost sb-x" title="بستن">×</button></div>
+    <div class="bar big"><i style="width:${lv.percent}%"></i></div>
+    <div class="sb-meta"><span>دریافت‌شده: <b class="ltr">${size(lv.bytes) === '—' ? '0' : size(lv.bytes)}</b></span>
+      ${lv.running ? `<span>سرعت: <b class="ltr">${lv.speed ? size(lv.speed) + '/s' : '—'}</b></span>` : ''}<span>زمان: ${t(lv.elapsed)}</span></div>
+    ${files ? `<div class="sb-files">${files}</div>` : ''}
+    <pre class="sb-log ltr">${esc((lv.log || []).join('\n'))}</pre>`;
+  box.classList.remove('hidden');
+  const lg = box.querySelector('.sb-log'); lg.scrollTop = lg.scrollHeight;
+  box.querySelector('.sb-x').onclick = () => { syncBoxClosedAt = lv.started + lv.running; box.classList.add('hidden'); };
+}
+
 function poll(fn) {
-  clearInterval(pollTimer);
-  pollTimer = setInterval(async () => { try { const s = await refreshBanner(); if (fn) fn(s); } catch (e) { } }, 3000);
+  clearTimeout(pollTimer); pollGen++;
+  const gen = ++pollGen;
+  const tick = async () => {
+    let s; try { s = await refreshBanner(); if (gen === pollGen && fn) fn(s); } catch (e) { }
+    if (gen === pollGen) pollTimer = setTimeout(tick, s && s.live && s.live.running ? 1000 : 3000);
+  };
+  pollTimer = setTimeout(tick, 1000);
 }
 
 // ---------- pages ----------
@@ -93,7 +124,10 @@ async function pageDashboard() {
     <div class="stat"><div class="k">آخرین همگام‌سازی موفق</div><div class="v">${esc(when(s.sync.last_ok))}</div></div>
     <div class="stat"><div class="k">برنامه‌ها / مخزن‌ها</div><div class="v">${fa(s.apps)} / ${fa(s.repos)}</div></div>
     <div class="stat"><div class="k">فایل‌های ریلیز</div><div class="v">${fa(s.assets)}</div></div>
-    <div class="stat"><div class="k">فضای مصرفی / آزاد</div><div class="v ltr">${size(s.disk_used)} / ${size(s.disk_free)}</div></div>
+    <div class="stat"><div class="k">فضای دیسک</div>
+      <div class="kv"><span>مصرف هاب</span><b class="ltr">${size(s.disk_used)}</b></div>
+      <div class="kv"><span>آزاد</span><b class="ltr">${size(s.disk_free)}</b></div>
+      ${s.disk_free > 0 ? `<div class="bar"><i style="width:${Math.min(100, Math.round(100 * s.disk_used / (s.disk_used + s.disk_free)))}%"></i></div>` : ''}</div>
   </div>
   <div class="card"><h2>آدرس هاب</h2>
     <div class="cmd"><span>${esc(s.hub)}</span><button data-copy="${esc(s.hub)}">کپی</button></div>
@@ -239,7 +273,7 @@ async function pageApp(id) {
   $('#saveRecipe').onclick = async () => { await api('apps/' + a.id, { method: 'PUT', body: { recipe: $('#recipe').value } }); toast('رسپی ذخیره شد'); route(); };
   $('#clearRecipe').onclick = async () => { await api('apps/' + a.id, { method: 'PUT', body: { recipe: '' } }); toast('رسپی حذف شد'); route(); };
   wireReadiness(d);
-  function watch() { let was = true; poll(s => { if (was && !s.sync.running) { clearInterval(pollTimer); route(); } was = s.sync.running; }); }
+  function watch() { let was = true; poll(s => { if (was && !s.sync.running) { clearTimeout(pollTimer); pollGen++; route(); } was = s.sync.running; }); }
   const st = await api('status'); if (st.sync.running) watch(); else poll();
 }
 
@@ -319,7 +353,7 @@ function wireReadiness(d) {
       await api('apps/' + a.id, { method: 'PUT', body: { apt_extra: extra } });
       const r = await api('apps/' + a.id + '/prefetch', { method: 'POST', body: { packages, targets } });
       $('#pfMsg').textContent = `شروع شد: ${fa(r.packages.length)} بسته × ${fa(r.targets)} هدف`;
-      let was = true; poll(s => { const run = s.apt && s.apt.running; if (was && !run) { clearInterval(pollTimer); route(); } was = run; });
+      let was = true; poll(s => { const run = s.apt && s.apt.running; if (was && !run) { clearTimeout(pollTimer); pollGen++; route(); } was = run; });
     } catch (e) { toast(e.message); }
   };
   $('#certGo').onclick = async () => {

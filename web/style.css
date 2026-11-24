@@ -101,3 +101,20 @@ body.dl li { margin: 4px 0; text-align: left; }
 .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: #cbd5e1; margin-top: 7px; }
 .dot.handled { background: #22a356; } .dot.action { background: #e0a800; } .dot.offline { background: #d64545; }
 .cmd span.pre { white-space: pre; }
+
+.stat .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-top: 4px; }
+.stat .kv b { font-size: 16px; }
+.bar { height: 6px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+.bar i { display: block; height: 100%; background: var(--pri); }
+
+.syncbox { position: sticky; top: 0; z-index: 20; margin: 10px auto 0; max-width: 1100px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; box-shadow: 0 4px 16px rgba(0,0,0,.08); height: 290px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.syncbox .sb-top { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.syncbox .sb-top b { font-size: 18px; }
+.syncbox .sb-x { padding: 2px 10px; font-size: 18px; line-height: 1; }
+.syncbox .bar.big { height: 10px; margin-top: 0; }
+.syncbox .sb-meta { display: flex; gap: 18px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.syncbox .sb-files { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 14px; max-height: 64px; overflow: auto; }
+.syncbox .sf { font-size: 12px; display: grid; grid-template-columns: 1fr auto; gap: 0 8px; }
+.syncbox .sf .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.syncbox .sf .bar { grid-column: 1 / -1; margin-top: 2px; height: 4px; }
+.syncbox .sb-log { flex: 1; margin: 0; background: #0f1623; color: #cfd8e3; border-radius: 8px; padding: 8px 10px; font-size: 12px; overflow: auto; white-space: pre-wrap; text-align: left; }
