@@ -194,6 +194,9 @@ func TestAuthAndAccessKey(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status with login: %d", w.Code)
 	}
+	if !strings.Contains(w.Body.String(), `"companion_cmd": "bash \u003c(curl -Ls 'http`) {
+		t.Fatalf("status lacks companion_cmd: %s", w.Body.String())
+	}
 	s.cfg.Update(func(c *Config) { c.AccessKey = "k3y-123456" })
 	if w := get(t, h, "/gh/api/repos/owner/repo/releases/latest"); w.Code != 401 {
 		t.Fatalf("access key not enforced: %d", w.Code)

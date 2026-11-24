@@ -55,25 +55,55 @@ func panelAddress(c Config) string {
 	return "http://<server-ip>:" + port
 }
 
+var menuItems = []struct{ key, label string }{
+	{"1", "Status"},
+	{"2", "Panel address / login"},
+	{"3", "Reset password"},
+	{"4", "Change port"},
+	{"5", "Sync now"},
+	{"6", "Export bundle"},
+	{"7", "Import bundle"},
+	{"8", "Logs"},
+	{"9", "Update"},
+	{"10", "Uninstall"},
+	{"11", "apt proxy command for other servers"},
+	{"0", "Exit"},
+}
+
+func clearScreen() { fmt.Print("\033[H\033[2J\033[3J") }
+
+func pause() {
+	fmt.Print("\n\033[2mPress Enter to return to the menu...\033[0m")
+	in.ReadString('\n')
+}
+
+func drawMenu(c Config, cfgErr error) {
+	clearScreen()
+	line := strings.Repeat("─", 46)
+	fmt.Printf("\033[1;36m%s\033[0m\n", line)
+	fmt.Printf("  \033[1;36msahand-mirror\033[0m  \033[2m%s\033[0m\n", version)
+	if cfgErr == nil {
+		fmt.Printf("  panel: \033[1m%s\033[0m\n  user:  %s\n", panelAddress(c), c.AdminUser)
+	} else {
+		fmt.Println("  \033[33mconfig missing — run install.sh\033[0m")
+	}
+	fmt.Printf("\033[1;36m%s\033[0m\n\n", line)
+	for _, it := range menuItems {
+		fmt.Printf("  \033[1;33m%3s)\033[0m  %s\n", it.key, it.label)
+	}
+	fmt.Println()
+}
+
 func runMenu() {
 	for {
 		c, err := loadConfigFile(cfgPath)
-		fmt.Println("\n\033[1;36m══ sahand-mirror " + version + " ══\033[0m")
-		if err == nil {
-			fmt.Printf(" panel: \033[1m%s\033[0m   user: %s\n", panelAddress(c), c.AdminUser)
-		} else {
-			fmt.Println(" config missing — run install.sh")
+		drawMenu(c, err)
+		choice := ask("Choice", "0")
+		if choice != "0" && choice != "q" {
+			clearScreen()
 		}
-		fmt.Print(` 1) status            2) panel address / login
- 3) reset password    4) change port
- 5) sync now          6) export bundle
- 7) import bundle     8) logs
- 9) update            10) uninstall
- 11) apt proxy: use this hub's apt cache on another server
- 0) exit
-`)
 		var e error
-		switch ask("choice", "0") {
+		switch choice {
 		case "1":
 			run("systemctl", "--no-pager", "status", "sahand-mirror")
 			e = cmdStatus()
@@ -121,6 +151,9 @@ func runMenu() {
 		}
 		if e != nil {
 			fmt.Println("\033[31merror:\033[0m", e)
+		}
+		if choice != "0" && choice != "q" {
+			pause()
 		}
 	}
 }
