@@ -34,7 +34,8 @@ type Repo struct {
 	DefaultBranch string    `json:"default_branch"`
 	Latest        string    `json:"latest"`
 	Releases      []Release `json:"releases"`
-	Raw           []string  `json:"raw,omitempty"` // "ref/path" files stored individually
+	Raw           []string  `json:"raw,omitempty"`      // "ref/path" files stored individually
+	HeadKey       string    `json:"head_key,omitempty"` // version the branch snapshot was taken at
 	LastSync      time.Time `json:"last_sync"`
 	Error         string    `json:"error,omitempty"`
 }
@@ -68,6 +69,7 @@ type App struct {
 	Error     string     `json:"error,omitempty"`
 	Disabled  []string   `json:"disabled_repos,omitempty"` // repo keys excluded from mirroring
 	AptExtra  []string   `json:"apt_extra,omitempty"`      // extra apt packages to prefetch
+	ExtKey    string     `json:"ext_key,omitempty"`        // app version the external files belong to
 	Readiness *Readiness `json:"readiness,omitempty"`
 }
 

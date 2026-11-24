@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -289,29 +290,6 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 	if discErr != nil {
 		errs = append(errs, discErr.Error())
 	}
-	// external static files
-	for _, e := range exts {
-		var x Ext
-		s.store.View(func(st *State) { x = *st.Ext[e] })
-		if !x.Mirror || x.Dynamic {
-			continue
-		}
-		s.progress("%s: دریافت %s", a.ID, e)
-		n, _, err := gh.download(ctx, e, extPath(s.data, e))
-		s.store.Update(func(st *State) {
-			p := st.Ext[e]
-			if err != nil {
-				p.Error = err.Error()
-				return
-			}
-			p.Size, p.Fetched, p.Error = n, time.Now(), ""
-		})
-		if err != nil {
-			errs = append(errs, err.Error())
-		} else {
-			run.ok++
-		}
-	}
 	// repositories
 	for _, r := range repos {
 		k := strings.ToLower(r)
@@ -341,6 +319,9 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 		if err != nil {
 			continue
 		}
+		if fileExists(dst) {
+			continue
+		}
 		if _, _, err := gh.download(ctx, r.URL(), dst); err == nil {
 			s.store.Update(func(st *State) {
 				if rp := st.Repos[k]; rp != nil && !contains(rp.Raw, r.Ref+"/"+r.Path) {
@@ -349,10 +330,56 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 			})
 		}
 	}
+	// external static files: re-fetched only when the app's version changes
+	var appKey, oldExtKey string
+	s.store.View(func(st *State) {
+		var parts []string
+		for _, k := range repos {
+			k = st.canon(strings.ToLower(k))
+			if rp := st.Repos[k]; rp != nil && rp.HeadKey != "" {
+				parts = append(parts, k+"@"+rp.HeadKey)
+			}
+		}
+		sort.Strings(parts)
+		appKey = strings.Join(parts, ",")
+		if p := st.App(a.ID); p != nil {
+			oldExtKey = p.ExtKey
+		}
+	})
+	extOK := true
+	for _, e := range exts {
+		var x Ext
+		s.store.View(func(st *State) { x = *st.Ext[e] })
+		if !x.Mirror || x.Dynamic {
+			continue
+		}
+		if appKey != "" && appKey == oldExtKey && x.Error == "" && fileExists(extPath(s.data, e)) {
+			continue
+		}
+		s.progress("%s: دریافت %s", a.ID, e)
+		n, _, err := gh.download(ctx, e, extPath(s.data, e))
+		s.store.Update(func(st *State) {
+			p := st.Ext[e]
+			if err != nil {
+				p.Error = err.Error()
+				return
+			}
+			p.Size, p.Fetched, p.Error = n, time.Now(), ""
+		})
+		if err != nil {
+			errs = append(errs, err.Error())
+			extOK = false
+		} else {
+			run.ok++
+		}
+	}
 	s.store.Update(func(st *State) {
 		p := st.App(a.ID)
 		if p == nil {
 			return
+		}
+		if extOK {
+			p.ExtKey = appKey
 		}
 		p.LastSync, p.Note, p.Error = time.Now(), strings.Join(notes, "؛ "), strings.Join(errs, "\n")
 		// redirected repos are stored once, under their canonical name
@@ -701,12 +728,6 @@ func (s *Syncer) syncRepo(ctx context.Context, run *syncRun, name string) (retEr
 			errs = append(errs, err.Error())
 		}
 	}
-	// default branch snapshot, refreshed every sync
-	s.progress("%s: سورس شاخه %s", inf.Name, inf.DefaultBranch)
-	head := filepath.Join(dir, "src", "heads", tagDir(inf.DefaultBranch)+".tar.gz")
-	if _, _, err := gh.download(ctx, gh.tarballURL(o, r, "heads", inf.DefaultBranch), head); err != nil {
-		errs = append(errs, err.Error())
-	}
 	// prune releases that fell out of the window
 	for _, sub := range []string{"releases", path.Join("src", "tags")} {
 		ents, _ := os.ReadDir(filepath.Join(dir, sub))
@@ -725,10 +746,30 @@ func (s *Syncer) syncRepo(ctx context.Context, run *syncRun, name string) (retEr
 			}
 		}
 	}
+	// default branch snapshot: only refreshed when the app's version changes
+	// (a new release), or for repos without releases when the branch moves.
+	headKey := ""
+	if latest != "" {
+		headKey = "tag:" + latest
+	} else if sha, err := gh.headSHA(ctx, o, r); err == nil {
+		headKey = "sha:" + sha
+	}
+	head := filepath.Join(dir, "src", "heads", tagDir(inf.DefaultBranch)+".tar.gz")
+	savedKey := old.HeadKey
+	if headKey != "" && headKey == old.HeadKey && old.DefaultBranch == inf.DefaultBranch && fileExists(head) {
+		s.progress("%s: سورس شاخه بدون تغییر است", inf.Name)
+	} else {
+		s.progress("%s: سورس شاخه %s", inf.Name, inf.DefaultBranch)
+		if _, _, err := gh.download(ctx, gh.tarballURL(o, r, "heads", inf.DefaultBranch), head); err != nil {
+			errs = append(errs, err.Error())
+		} else {
+			savedKey = headKey
+		}
+	}
 	errText := strings.Join(errs, "\n")
 	s.store.Update(func(st *State) {
 		rp := &Repo{Name: inf.Name, DefaultBranch: inf.DefaultBranch, Latest: latest,
-			Releases: kept, Raw: old.Raw, LastSync: time.Now(), Error: errText}
+			Releases: kept, Raw: old.Raw, HeadKey: savedKey, LastSync: time.Now(), Error: errText}
 		if rp.release(latest) == nil && len(kept) > 0 {
 			rp.Latest = "" // GitHub's latest was filtered out; latestRelease() falls back
 		}

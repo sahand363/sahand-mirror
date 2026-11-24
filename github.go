@@ -131,6 +131,22 @@ func (g *GH) repoInfo(ctx context.Context, owner, repo string) (repoInfo, error)
 	return repoInfo{name, string(m[1])}, nil
 }
 
+// headSHA returns the commit the default branch points to, read from the git
+// smart-HTTP advertisement (small, no API quota).
+func (g *GH) headSHA(ctx context.Context, owner, repo string) (string, error) {
+	b, err := g.getBytes(ctx, g.base+"/"+owner+"/"+repo+".git/info/refs?service=git-upload-pack", 64<<10)
+	if err != nil {
+		return "", err
+	}
+	m := headSHARe.FindSubmatch(b)
+	if m == nil {
+		return "", fmt.Errorf("%s/%s: HEAD not found", owner, repo)
+	}
+	return string(m[1]), nil
+}
+
+var headSHARe = regexp.MustCompile(`([0-9a-f]{40}) HEAD`)
+
 type ghAPIRelease struct {
 	TagName     string    `json:"tag_name"`
 	Name        string    `json:"name"`
