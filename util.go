@@ -174,3 +174,12 @@ func fileExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.Mode().IsRegular()
 }
+
+func readFileLimit(p string, max int64) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, max))
+}

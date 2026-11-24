@@ -102,6 +102,10 @@ async function pageDashboard() {
     <span class="muted">${s.direct_sync ? 'همگام‌سازی خودکار روزانه ساعت ' + fa(s.sync_hour) : 'همگام‌سازی مستقیم خاموش است (حالت بسته‌ای)'}</span></div>
     ${s.sync.last_error ? `<h3>خطاهای آخرین همگام‌سازی</h3><div class="err ltr">${esc(s.sync.last_error)}</div>` : ''}
   </div>
+  <div class="card"><h2>نصب Companion روی سرورهای دیگر</h2>
+    <p class="muted">این دستور را روی هر سرور مقصد (با root) اجرا کنید. آدرس این هاب داخلش هست و نصب حتی در قطعی هم از خود هاب انجام می‌شود. Companion یک پنل و منو می‌دهد: شبیه‌ساز اینترنت ملی، تست دسترسی و فهرست برنامه‌های این هاب با README.</p>
+    <div class="cmd"><span class="ltr">${esc(s.companion_cmd)}</span><button data-copy="${esc(s.companion_cmd)}">کپی</button></div>
+    <p class="muted">فهرست عمومی برنامه‌ها (JSON): <a href="/catalog" target="_blank">/catalog</a></p></div>
   <div class="card"><h2>آمادگی برای روز قطعی</h2>
     <p class="muted">هاب اسکریپت نصب هر برنامه را بررسی می‌کند: بسته‌های سیستم‌عامل، سرویس‌های تشخیص IP، Let's Encrypt، داکر، pip/npm و آدرس‌های خارجی. «اقدام» معمولاً یک کلیک است؛ «ناممکن» یعنی بدون اینترنت بین‌الملل راهی جز آماده‌سازی از قبل ندارد.</p>
     <table><tr><th>برنامه</th><th>وضعیت</th><th></th></tr>${(s.readiness || []).map(r => `<tr><td><a href="#/app/${esc(r.id)}">${esc(r.name)}</a></td>

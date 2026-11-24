@@ -91,6 +91,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/ext", s.public(s.emu.ServeExt))
 	mux.HandleFunc("/i/", s.public(s.handleInstall))
 	mux.HandleFunc("/d", s.public(s.handleDownloads))
+	mux.HandleFunc("/catalog", s.public(s.handleCatalog))
+	mux.HandleFunc("/catalog/", s.public(s.handleCatalogItem))
+	mux.HandleFunc("/companion", s.public(func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/i/" + companionID
+		s.handleInstall(w, r2)
+	}))
 	mux.HandleFunc("/myip", s.public(s.handleMyIP))
 	mux.HandleFunc("/apt/", s.public(s.handleAptPath))
 	mux.HandleFunc("/ca.crt", func(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +350,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	case p == "settings" && r.Method == "GET":
 		c := s.cfg.Get()
-		writeJSON(w, 200, map[string]any{"public_url": c.PublicURL, "listen": c.Listen, "direct_sync": c.DirectSync,
+		writeJSON(w, 200, map[string]any{"public_url": c.PublicURL, "listen": c.Listen, "direct_sync": c.DirectSync, "companion_cmd": s.companionCmd(r),
 			"sync_hour": c.SyncHour, "keep": c.Keep, "token_set": c.GitHubToken != "", "access_key": c.AccessKey,
 			"tls": c.TLS, "apt_mirror_hint": c.AptMirrorHint, "admin_user": c.AdminUser, "max_upload_mb": c.MaxUploadMB,
 			"apt_proxy": !c.AptProxyOff, "apt_targets": aptTargetsOrDefault(c), "apt_releases": aptReleases,

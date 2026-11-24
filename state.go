@@ -100,6 +100,9 @@ type State struct {
 	// GitHub redirects it to (renamed/transferred repos are stored once).
 	Aliases map[string]string `json:"aliases,omitempty"`
 	Apt     *AptState         `json:"apt,omitempty"`
+	// Seeded lists default apps already offered once, so an app the user
+	// deleted is never re-added by a later version.
+	Seeded []string `json:"seeded,omitempty"`
 }
 
 // canon resolves a repo key through the alias table.
@@ -141,10 +144,16 @@ func OpenStore(dataDir string, seed bool) (*Store, error) {
 		if s.st.Apt != nil {
 			s.st.Apt.Running, s.st.Apt.Progress = false, ""
 		}
+		if s.st.migrateSeeds() {
+			if err := s.saveLocked(); err != nil {
+				return nil, err
+			}
+		}
 	case errors.Is(err, os.ErrNotExist):
 		if seed {
 			for _, a := range defaultApps() {
 				s.st.Apps = append(s.st.Apps, a)
+				s.st.Seeded = append(s.st.Seeded, a.ID)
 			}
 		}
 		if err := s.saveLocked(); err != nil {
@@ -298,5 +307,36 @@ func defaultApps() []*App {
 		mk("loadinme", "sahand363/loadinme", "curl -fsSL https://raw.githubusercontent.com/sahand363/loadinme/main/install.sh | bash"),
 		mk("blendartai", "sahand363/blendartai", "bash <(curl -fsSL https://raw.githubusercontent.com/sahand363/blendartai/main/scripts/install.sh)"),
 		mk("sahand-mirror", "sahand363/sahand-mirror", "bash <(curl -Ls https://raw.githubusercontent.com/sahand363/sahand-mirror/main/install.sh)"),
+		mk(companionID, "sahand363/sahand-mirror-companion", "bash <(curl -Ls https://raw.githubusercontent.com/sahand363/sahand-mirror-companion/main/install.sh)"),
 	}
+}
+
+const companionID = "sahand-mirror-companion"
+
+// migrateSeeds adds default apps introduced by newer versions (once).
+// Apps that existed before seeds were tracked are marked as seeded.
+func (st *State) migrateSeeds() bool {
+	changed := false
+	if len(st.Seeded) == 0 {
+		for _, a := range st.Apps {
+			st.Seeded = append(st.Seeded, a.ID)
+		}
+		for _, id := range []string{"zimzim", "loadinme", "blendartai", "sahand-mirror"} {
+			if !contains(st.Seeded, id) {
+				st.Seeded = append(st.Seeded, id)
+			}
+		}
+		changed = true
+	}
+	for _, a := range defaultApps() {
+		if contains(st.Seeded, a.ID) {
+			continue
+		}
+		st.Seeded = append(st.Seeded, a.ID)
+		if st.App(a.ID) == nil {
+			st.Apps = append(st.Apps, a)
+		}
+		changed = true
+	}
+	return changed
 }
