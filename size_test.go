@@ -18,3 +18,15 @@ func TestAppSizes(t *testing.T) {
 		t.Fatalf("sizes = %v", got)
 	}
 }
+
+func TestPruneReleaseDir(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"x-linux-amd64.tar.gz", "x-windows-amd64.zip", ".tmp-1"} {
+		os.WriteFile(filepath.Join(dir, n), []byte("1"), 0o644)
+	}
+	pruneReleaseDir(dir, []Asset{{Name: "x-linux-amd64.tar.gz"}})
+	ents, _ := os.ReadDir(dir)
+	if len(ents) != 2 {
+		t.Fatalf("left %d files", len(ents))
+	}
+}

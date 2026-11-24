@@ -667,6 +667,7 @@ func (s *Syncer) syncRepo(ctx context.Context, run *syncRun, name string) (retEr
 				rel.Assets = append(rel.Assets, as)
 			}
 		}
+		pruneReleaseDir(filepath.Join(dir, "releases", tagDir(rel.Tag)), rel.Assets)
 		// source snapshot at this tag (serves raw.githubusercontent.com/<o>/<r>/<tag>/...)
 		src := filepath.Join(dir, "src", "tags", tagDir(rel.Tag)+".tar.gz")
 		if fileExists(src) {
@@ -790,5 +791,22 @@ func (s *Syncer) scheduler(ctx context.Context) {
 			}
 			s.Start(nil)
 		}
+	}
+}
+
+// pruneReleaseDir deletes files of a kept release that the app settings no
+// longer want (an arch unticked, a new exclude pattern), so the space is freed
+// without deleting and re-adding the app.
+func pruneReleaseDir(dir string, keep []Asset) {
+	want := map[string]bool{}
+	for _, a := range keep {
+		want[a.Name] = true
+	}
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if e.IsDir() || want[e.Name()] || strings.HasPrefix(e.Name(), ".tmp-") {
+			continue
+		}
+		os.Remove(filepath.Join(dir, e.Name()))
 	}
 }
