@@ -116,7 +116,8 @@ async function pageDashboard() {
   <div class="card"><h2>کش apt هاب ${s.apt_proxy ? '<span class="pill ok">روشن</span>' : '<span class="pill">خاموش</span>'}</h2>
     <p class="muted">دستور نصب هر برنامه apt-get را فقط برای همان نصب از هاب عبور می‌دهد. برای اینکه یک سرور همیشه از کش هاب استفاده کند (روی همان سرور با root):</p>
     <div id="aptSnip"></div></div>`;
-  api('settings').then(st => { $('#aptSnip').innerHTML = snippetBox(st.apt_snippet); }).catch(() => { });
+  api('settings').then(st => { $('#aptSnip').innerHTML = snippetBox(st.apt_snippet) + `<label>خنثی‌سازی (برگشت به حالت عادی، مثلاً وقتی اینترنت جهانی برگشت)</label>${snippetBox(st.apt_undo)}
+    <p class="muted">برای رفتن به هاب دیگر لازم نیست اول خنثی کنید: دستور بالا را از داشبورد هاب جدید اجرا کنید تا جای تنظیم قبلی را بگیرد.</p>`; }).catch(() => { });
   $('#syncAll').onclick = async () => { try { await api('sync', { method: 'POST' }); toast('همگام‌سازی شروع شد'); route(); } catch (e) { toast(e.message); } };
   let was = s.sync.running;
   poll(ns => { if (was && !ns.sync.running) route(); was = ns.sync.running; });
@@ -398,6 +399,8 @@ async function pageSettings() {
       <td><input class="ltr" name="in_${f}" value="${esc((s.apt_internal || {})[f] || '')}" placeholder="http://mirror.example.ir/${f}"></td></tr>`).join('')}</table>
     <p class="muted">فقط http (apt روی https کش‌شدنی نیست). یک میرور داخلی ایران (مثلاً میرور دیتاسنتر) را در ستون دوم بگذارید تا روز قطعی، فایل‌هایی که در کش نیستند از آنجا گرفته و کش شوند.</p>
     <label>استفادهٔ دائمی یک سرور از کش apt هاب</label>${snippetBox(s.apt_snippet)}
+    <label>خنثی‌سازی (برگشت به حالت عادی، مثلاً وقتی اینترنت جهانی برگشت)</label>${snippetBox(s.apt_undo)}
+    <p class="muted">برای رفتن به هاب دیگر لازم نیست اول خنثی کنید: دستور بالا را از داشبورد هاب جدید اجرا کنید تا جای تنظیم قبلی را بگیرد.</p>
     <p class="muted">یا در sources.list آدرس میرور را با <code>${esc(s.hub)}/apt/archive.ubuntu.com/ubuntu</code> جایگزین کنید. مخزن‌های https (docker، cloudsmith …) از هاب رد نمی‌شوند و روز قطعی شکست می‌خورند.</p>
     <label class="inline"><input type="checkbox" name="trust_xff" ${s.trust_xff ? 'checked' : ''}> ‎/myip‎ به هدر X-Forwarded-For اعتماد کند (فقط اگر هاب پشت reverse proxy است)</label>
     <p><button>ذخیره</button></p></form>

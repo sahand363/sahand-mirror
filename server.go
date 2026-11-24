@@ -361,7 +361,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			"apt_proxy": !c.AptProxyOff, "apt_targets": aptTargetsOrDefault(c), "apt_releases": aptReleases,
 			"apt_upstream": aptUpstreamView(c), "apt_internal": c.AptInternal, "apt_families": aptFamilies,
 			"trust_xff": c.TrustXFF, "ai_provider": c.AIProvider, "ai_base_url": c.AIBaseURL, "ai_model": c.AIModel,
-			"ai_key_set": c.AIKey != "", "apt_snippet": s.aptSnippet(r), "hub": s.hubURL(r)})
+			"ai_key_set": c.AIKey != "", "apt_snippet": s.aptSnippet(r), "apt_undo": aptUndo, "hub": s.hubURL(r)})
 	case p == "settings" && r.Method == "PUT":
 		var in struct {
 			PublicURL     *string            `json:"public_url"`
@@ -549,7 +549,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		s.handleUpload(w, r)
 	case p == "apt" && r.Method == "GET":
 		st := s.store.Snapshot()
-		writeJSON(w, 200, map[string]any{"apt": st.Apt, "cache_bytes": s.aptCacheSize(), "snippet": s.aptSnippet(r)})
+		writeJSON(w, 200, map[string]any{"apt": st.Apt, "cache_bytes": s.aptCacheSize(), "snippet": s.aptSnippet(r), "undo": aptUndo})
 	default:
 		writeJSON(w, 404, map[string]string{"error": "not found"})
 	}
@@ -1139,9 +1139,11 @@ func (s *Server) aptSnippet(r *http.Request) string {
 	if p == "" {
 		return "# apt proxy needs the hub on http:// (HTTPS hub: point sources.list at " + s.hubURL(r) + "/apt/<host>/<path>)"
 	}
-	return "echo 'Acquire::http::Proxy \"" + p + "\";' > /etc/apt/apt.conf.d/99sahand-mirror && apt-get update\n" +
-		"# undo: rm /etc/apt/apt.conf.d/99sahand-mirror"
+	return "echo 'Acquire::http::Proxy \"" + p + "\";' > /etc/apt/apt.conf.d/99sahand-mirror && apt-get update"
 }
+
+// aptUndo: removes the permanent apt proxy so the server uses its own mirrors again.
+const aptUndo = "rm -f /etc/apt/apt.conf.d/99sahand-mirror && apt-get update"
 
 // mirrorDocs reads an app's scripts straight from the mirror (for apps
 // synced before scripts were saved).

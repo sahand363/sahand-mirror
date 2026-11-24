@@ -144,7 +144,7 @@ func runMenu() {
 			if p == "" {
 				p = hub + "/  (hub is https: point sources.list at " + hub + "/apt/<host>/<path> instead)"
 			}
-			fmt.Printf("run on the other server (as root):\n\n  echo 'Acquire::http::Proxy \"%s\";' > /etc/apt/apt.conf.d/99sahand-mirror && apt-get update\n\nundo:\n  rm /etc/apt/apt.conf.d/99sahand-mirror\n", p)
+			fmt.Printf("run on the other server (as root):\n\n  echo 'Acquire::http::Proxy \"%s\";' > /etc/apt/apt.conf.d/99sahand-mirror && apt-get update\n\nundo (back to normal):\n  rm -f /etc/apt/apt.conf.d/99sahand-mirror && apt-get update\n", p)
 			fmt.Println("only http:// repos are cached; https repos (docker, cloudsmith...) still go direct and fail offline.")
 		case "0", "q":
 			return
