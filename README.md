@@ -101,31 +101,27 @@ API عمومی (با همان کلید دسترسی اگر فعال باشد):
 - `GET /catalog/<id>` و `GET /catalog/<id>/readme`
 - `GET /companion`: همان `/i/sahand-mirror-companion`
 
-## تست قطعی روی یک سرور مقصد
+## تست قطعی روی یک سرور مقصد با `offline-sim.sh`
 
-ساده‌ترین راه: Companion را نصب کنید و در منو گزینهٔ ۴ یا کلید بالای پنل را بزنید. روش دستی:
-
-برای اینکه ببینید نصب واقعاً فقط با هاب جلو می‌رود، روی **سرور مقصد** (نه هاب) همهٔ ترافیک خروجی جز هاب را ببندید؛ با برگشت خودکار بعد از ۲۰ دقیقه (حتی اگر SSH قطع شود):
+این اسکریپت روی **سرور مقصد** (نه هاب) همهٔ ترافیک خروجی را می‌بندد، جز خود سرور، جلسهٔ SSH فعلی و هاب؛ و بعد از چند دقیقه خودش همه‌چیز را برمی‌گرداند، حتی اگر SSH قطع شود. با root اجرا کنید:
 
 ```bash
-HUB_IP=10.x.x.x HUB_PORT=8686
-iptables -N SM_TEST
-iptables -A SM_TEST -o lo -j ACCEPT
-iptables -A SM_TEST -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT   # جلسهٔ SSH فعلی
-iptables -A SM_TEST -d "$HUB_IP" -p tcp --dport "$HUB_PORT" -j ACCEPT
-iptables -A SM_TEST -j REJECT
-iptables -I OUTPUT 1 -j SM_TEST
-ip6tables -I OUTPUT 1 ! -o lo -j REJECT
-# برگشت خودکار
-systemd-run --on-active=20m --unit=sm-rollback /bin/sh -c \
-  'iptables -D OUTPUT -j SM_TEST; iptables -F SM_TEST; iptables -X SM_TEST; ip6tables -D OUTPUT ! -o lo -j REJECT'
-curl -s --max-time 5 https://github.com >/dev/null && echo "github هنوز باز است!" || echo "قطع شد؛ فقط هاب در دسترس است"
-bash <(curl -Ls "http://$HUB_IP:$HUB_PORT/i/3x-ui?trace=1")
-# پایان زودتر: systemctl start sm-rollback   (یا همان سه دستور داخل systemd-run)
+curl -Lso offline-sim.sh https://raw.githubusercontent.com/sahand363/sahand-mirror/main/offline-sim.sh
+bash offline-sim.sh 20                 # ۲۰ دقیقه آفلاین (پیش‌فرض ۲۰، کمترین ۱)
+ALLOW_DNS=1 bash offline-sim.sh 30     # DNS باز بماند، شبیه‌تر به قطعی واقعی
+HUB=1.2.3.4 bash offline-sim.sh        # هاب دیگر
+bash offline-sim.sh off                # پایان فوری و وصل شدن دوباره به اینترنت
 ```
 
-- REJECT خطای فوری می‌دهد؛ در قطعی واقعی معمولاً بسته‌ها DROP می‌شوند و هر تلاش تا timeout صبر می‌کند، پس نصب واقعی ممکن است کندتر باشد. DNS هم در این تست بسته است (در قطعی واقعی DNS داخلی معمولاً کار می‌کند)؛ چون همه‌چیز با IP هاب است مشکلی ایجاد نمی‌کند.
-- **سرعت:** اگر سرور تست خارج از ایران است و هاب داخل ایران، دانلودها از مسیر بین‌الملل می‌آیند و کند هستند (مثلاً ریلیز ۷۵ مگابایتی 3x-ui). این طبیعی است؛ روز قطعی، سرور داخلی ← هاب داخلی روی شبکهٔ ملی سریع است.
+بررسی: `curl -m5 -sI https://github.com` باید خطا بدهد و `curl -m5 -s http://HUB:PORT/myip` باید IP سرور را بدهد.
+
+- اگر اسکریپت را دانلود نکرده‌اید و سرور قطع مانده، این یک خط هم همان کار `off` را می‌کند:
+  `for T in iptables ip6tables; do while $T -D OUTPUT -j OFFSIM 2>/dev/null; do :; done; $T -F OFFSIM; $T -X OFFSIM; done`
+- عدد ۰ پذیرفته نمی‌شود (برگشت خودکار ساخته نمی‌شد و سرور قطع می‌ماند)؛ کمترین مقدار ۱ دقیقه است.
+- REJECT خطای فوری می‌دهد؛ در قطعی واقعی معمولاً بسته‌ها DROP می‌شوند و نصب کندتر است.
+- اگر سرور تست خارج از ایران و هاب داخل ایران است، دانلودها از مسیر بین‌الملل می‌آیند و کندند؛ روز قطعی روی شبکهٔ ملی سریع است.
+
+ساده‌تر: Companion را نصب کنید و در منو گزینهٔ ۴ یا کلید بالای پنل را بزنید.
 
 ## روز قطعی — قدم‌به‌قدم
 
