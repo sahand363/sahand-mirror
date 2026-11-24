@@ -308,6 +308,12 @@ func (s *Syncer) syncApp(ctx context.Context, run *syncRun, id string) error {
 			run.done[k] = err
 		}
 		if err != nil {
+			// a repo only linked from docs that does not exist (or is private)
+			// is not the app's problem: note it instead of failing the app.
+			if !strings.EqualFold(r, a.Repo) && (strings.Contains(err.Error(), "HTTP 401") || strings.Contains(err.Error(), "HTTP 404")) {
+				notes = append(notes, "مخزن "+r+" پیدا نشد و نادیده گرفته شد")
+				continue
+			}
 			errs = append(errs, err.Error())
 		}
 	}

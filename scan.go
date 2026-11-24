@@ -18,7 +18,12 @@ var varRefRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|
 // GitHub path segments that are not owners.
 var ghReserved = map[string]bool{"orgs": true, "settings": true, "login": true, "features": true, "about": true,
 	"site": true, "sponsors": true, "topics": true, "marketplace": true, "search": true, "apps": true,
-	"users": true, "notifications": true, "explore": true, "collections": true, "pricing": true, "enterprise": true}
+	"users": true, "notifications": true, "explore": true, "collections": true, "pricing": true, "enterprise": true,
+	"resources": true, "security": true, "solutions": true, "customer-stories": true, "readme": true, "team": true,
+	"trending": true, "contact": true, "codespaces": true, "issues": true, "pulls": true, "new": true, "events": true,
+	"education": true, "premium-support": true, "partners": true, "newsroom": true, "home": true, "dashboard": true,
+	"account": true, "signup": true, "join": true, "logout": true, "sessions": true, "copilot": true, "mobile": true,
+	"discussions": true, "codes": true, "git-guides": true, "github-copilot": true, "why-github": true, "community": true}
 
 type RawRef struct {
 	Owner, Repo, Ref, Path string
