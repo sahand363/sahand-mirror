@@ -982,7 +982,7 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 	st := s.store.Snapshot()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	b := &strings.Builder{}
-	b.WriteString(`<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>دانلودها</title><link rel="stylesheet" href="/style.css"><body class="dl"><h1>دانلودهای هاب</h1><p class="muted">برای گوشی: فایل‌های ‎.apk‎ را مستقیم دانلود و نصب کنید. <a href="/ca.crt">گواهی CA داخلی</a></p>`)
+	b.WriteString(`<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>دانلودها</title><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="stylesheet" href="/style.css"><body class="dl"><h1>دانلودهای هاب</h1><p class="muted">برای گوشی: فایل‌های ‎.apk‎ را مستقیم دانلود و نصب کنید. <a href="/ca.crt">گواهی CA داخلی</a></p>`)
 	keys := make([]string, 0, len(st.Repos))
 	for k := range st.Repos {
 		keys = append(keys, k)
